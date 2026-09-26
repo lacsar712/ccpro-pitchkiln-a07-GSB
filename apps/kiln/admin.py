@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CookRun, FireHearth, ResinLot, SoftPointProbe
+from .models import CookRun, FireHearth, MaintenanceSeal, ResinLot, SoftPointProbe
 
 
 @admin.register(ResinLot)
@@ -34,3 +34,18 @@ class CookRunAdmin(admin.ModelAdmin):
 class SoftPointProbeAdmin(admin.ModelAdmin):
     list_display = ("id", "run", "sampledAt", "softPointC", "samplerName")
     search_fields = ("samplerName",)
+
+
+@admin.register(MaintenanceSeal)
+class MaintenanceSealAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "hearth",
+        "startedAt",
+        "plannedReleaseDate",
+        "faultSummary",
+        "placedBy",
+        "releasedAt",
+    )
+    list_filter = ("hearth",)
+    search_fields = ("hearth__tag", "faultSummary", "placedBy__username")

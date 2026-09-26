@@ -15,6 +15,7 @@
     <nav class="strip-nav">
       <a href="{% url 'home' %}" class="{% if request.resolver_match.url_name == 'home' %}on{% endif %}" title="值守看板">灶</a>
       <a href="{% url 'resin_lot_feed' %}" class="{% if request.resolver_match.url_name == 'resin_lot_feed' %}on{% endif %}" title="来脂批">脂</a>
+      <a href="{% url 'home' %}" class="seal-nav" title="检修封条：未解除 {{ active_seal_count|default:0 }} 条">修{% if active_seal_count %}<sup class="seal-count">{{ active_seal_count }}</sup>{% endif %}</a>
     </nav>
     <div class="strip-foot">
       <span class="who">{{ user.username }}</span>

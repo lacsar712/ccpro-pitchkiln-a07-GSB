@@ -30,8 +30,11 @@ def assert_can_enter_drawing(hearth) -> None:
 
 
 def change_hearth_phase(hearth, new_phase: str):
-    """统一入口：改相位时校验出胶规则并保存。"""
+    """统一入口：改相位时校验封条与出胶规则并保存。"""
     from apps.kiln.models import FireHearth
+    from apps.kiln.services.maintenance import assert_not_sealed
+
+    assert_not_sealed(hearth)
 
     if new_phase == FireHearth.PHASE_DRAWING:
         assert_can_enter_drawing(hearth)

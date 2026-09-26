@@ -3,15 +3,18 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from .models import CookRun, FireHearth, ResinLot, SoftPointProbe
+from .models import CookRun, FireHearth, MaintenanceSeal, ResinLot, SoftPointProbe
 
 
 def ensure_seed_data():
-    """幂等种子：账号 + 来脂批 / 灶台 / 值守 / 探针。"""
+    """幂等种子：账号 + 来脂批 / 灶台 / 值守 / 探针 / 检修封条。"""
     User = get_user_model()
 
-    if not User.objects.filter(username="admin").exists():
-        User.objects.create_superuser("admin", "admin@pitchkiln.local", "123456")
+    admin_user = User.objects.filter(username="admin").first()
+    if admin_user is None:
+        admin_user = User.objects.create_superuser(
+            "admin", "admin@pitchkiln.local", "123456"
+        )
 
     if not User.objects.filter(username="worker").exists():
         User.objects.create_user("worker", "worker@pitchkiln.local", "123456")
@@ -69,6 +72,12 @@ def ensure_seed_data():
         tag="坳火-夜班",
         resinGrade="浮油级",
         phase=FireHearth.PHASE_CHARGING,
+    )
+    h6 = FireHearth.objects.create(
+        lane=3,
+        tag="坑火-备灶",
+        resinGrade="二级脂",
+        phase=FireHearth.PHASE_COLD,
     )
 
     run1 = CookRun.objects.create(
@@ -131,4 +140,13 @@ def ensure_seed_data():
         openedAt=now - timezone.timedelta(minutes=40),
         closedAt=None,
         targetSoftPointC=Decimal("87.00"),
+    )
+
+    # 一台冷灶挂「在修」封条：生效期间该灶写操作全部拦截
+    MaintenanceSeal.objects.create(
+        hearth=h6,
+        startedAt=now - timezone.timedelta(hours=5),
+        plannedReleaseDate=(now + timezone.timedelta(days=3)).date(),
+        faultSummary="炉膛耐火砖开裂，待停灶更换",
+        placedBy=admin_user,
     )

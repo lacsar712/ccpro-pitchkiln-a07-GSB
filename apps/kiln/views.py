@@ -8,9 +8,21 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
-from .forms import OpenCookRunForm, PhaseChangeForm, ResinLotForm, SoftPointProbeForm
-from .models import CookRun, FireHearth, ResinLot
+from .forms import (
+    MaintenanceSealForm,
+    OpenCookRunForm,
+    PhaseChangeForm,
+    ResinLotForm,
+    SoftPointProbeForm,
+)
+from .models import CookRun, FireHearth, MaintenanceSeal, ResinLot
 from .services.floor_rules import change_hearth_phase
+from .services.maintenance import (
+    active_seal_for,
+    place_maintenance_seal,
+    release_maintenance_seal,
+    seal_placement_block_reason,
+)
 
 
 def _wants_htmx(request):
@@ -25,7 +37,14 @@ def _hearths_for_board():
             .select_related("resinLot")
             .prefetch_related("probes"),
             to_attr="open_runs_cache",
-        )
+        ),
+        Prefetch(
+            "seals",
+            queryset=MaintenanceSeal.objects.filter(
+                releasedAt__isnull=True
+            ).select_related("placedBy"),
+            to_attr="active_seals_cache",
+        ),
     ).order_by("lane", "tag")
 
 
@@ -45,19 +64,45 @@ def _board_context():
     }
 
 
-def _drawer_context(hearth):
+def _drawer_context(hearth, user=None):
     open_run = hearth.open_run()
     probes = []
     if open_run:
         probes = list(open_run.probes.order_by("-sampledAt", "-id"))
+    seal = active_seal_for(hearth)
     return {
         "hearth": hearth,
         "open_run": open_run,
         "probes": probes,
+        "seal": seal,
+        "seal_block_reason": seal_placement_block_reason(hearth),
+        "can_release_seal": bool(user and user.is_staff),
         "phase_form": PhaseChangeForm(hearth=hearth),
         "probe_form": SoftPointProbeForm() if open_run else None,
         "open_run_form": OpenCookRunForm(hearth=hearth) if open_run is None else None,
+        "seal_form": MaintenanceSealForm(hearth=hearth) if seal is None else None,
     }
+
+
+def _seal_block_response(request, hearth):
+    """在修拦截：有未解除封条时返回拦截响应，否则 None（判定与服务层共用）。"""
+    seal = active_seal_for(hearth)
+    if seal is None:
+        return None
+    messages.error(
+        request,
+        "灶台在修：{summary}（计划解除 {until:%Y-%m-%d}），解除封条前禁止写操作。".format(
+            summary=seal.faultSummary,
+            until=seal.plannedReleaseDate,
+        ),
+    )
+    if _wants_htmx(request):
+        resp = render(
+            request, "floor/_drawer.html", _drawer_context(hearth, request.user)
+        )
+        resp["HX-Trigger"] = "floor-refresh"
+        return resp
+    return redirect(f"/?hearth={hearth.pk}")
 
 
 @login_required
@@ -67,7 +112,7 @@ def home(request):
     if drawer_pk:
         try:
             hearth = FireHearth.objects.get(pk=drawer_pk)
-            ctx.update(_drawer_context(hearth))
+            ctx.update(_drawer_context(hearth, request.user))
             ctx["drawer_open"] = True
         except (FireHearth.DoesNotExist, ValueError):
             ctx["drawer_open"] = False
@@ -85,7 +130,7 @@ def floor_grid_partial(request):
 @login_required
 def hearth_drawer(request, pk):
     hearth = get_object_or_404(FireHearth, pk=pk)
-    ctx = _drawer_context(hearth)
+    ctx = _drawer_context(hearth, request.user)
     if _wants_htmx(request):
         return render(request, "floor/_drawer.html", ctx)
     return redirect(f"/?hearth={pk}")
@@ -95,6 +140,9 @@ def hearth_drawer(request, pk):
 @require_POST
 def change_phase(request, pk):
     hearth = get_object_or_404(FireHearth, pk=pk)
+    blocked = _seal_block_response(request, hearth)
+    if blocked is not None:
+        return blocked
     form = PhaseChangeForm(request.POST, hearth=hearth)
     if form.is_valid():
         try:
@@ -104,14 +152,19 @@ def change_phase(request, pk):
             msg = (
                 exc.message_dict.get("phase") if hasattr(exc, "message_dict") else None
             )
-            messages.error(request, msg[0] if msg else str(exc))
+            if msg:
+                messages.error(request, msg[0])
+            else:
+                messages.error(request, exc.messages[0])
     else:
         err = form.errors.get("phase")
         messages.error(request, err[0] if err else "相位切换失败")
 
     if _wants_htmx(request):
         hearth.refresh_from_db()
-        resp = render(request, "floor/_drawer.html", _drawer_context(hearth))
+        resp = render(
+            request, "floor/_drawer.html", _drawer_context(hearth, request.user)
+        )
         resp["HX-Trigger"] = "floor-refresh"
         return resp
     return redirect(f"/?hearth={pk}")
@@ -121,6 +174,9 @@ def change_phase(request, pk):
 @require_POST
 def add_probe(request, pk):
     hearth = get_object_or_404(FireHearth, pk=pk)
+    blocked = _seal_block_response(request, hearth)
+    if blocked is not None:
+        return blocked
     open_run = hearth.open_run()
     if open_run is None:
         messages.error(request, "没有进行中的值守，无法登记探针")
@@ -136,7 +192,9 @@ def add_probe(request, pk):
         messages.error(request, "探针登记失败，请检查输入")
 
     if _wants_htmx(request):
-        resp = render(request, "floor/_drawer.html", _drawer_context(hearth))
+        resp = render(
+            request, "floor/_drawer.html", _drawer_context(hearth, request.user)
+        )
         resp["HX-Trigger"] = "floor-refresh"
         return resp
     return redirect(f"/?hearth={pk}")
@@ -146,6 +204,9 @@ def add_probe(request, pk):
 @require_POST
 def open_run(request, pk):
     hearth = get_object_or_404(FireHearth, pk=pk)
+    blocked = _seal_block_response(request, hearth)
+    if blocked is not None:
+        return blocked
     form = OpenCookRunForm(request.POST, hearth=hearth)
     if form.is_valid():
         run = form.save(commit=False)
@@ -163,7 +224,9 @@ def open_run(request, pk):
 
     if _wants_htmx(request):
         hearth.refresh_from_db()
-        resp = render(request, "floor/_drawer.html", _drawer_context(hearth))
+        resp = render(
+            request, "floor/_drawer.html", _drawer_context(hearth, request.user)
+        )
         resp["HX-Trigger"] = "floor-refresh"
         return resp
     return redirect(f"/?hearth={pk}")
@@ -173,6 +236,9 @@ def open_run(request, pk):
 @require_POST
 def close_run(request, pk):
     hearth = get_object_or_404(FireHearth, pk=pk)
+    blocked = _seal_block_response(request, hearth)
+    if blocked is not None:
+        return blocked
     open_run = hearth.open_run()
     if open_run is None:
         messages.error(request, "没有进行中的值守可收灶")
@@ -185,7 +251,65 @@ def close_run(request, pk):
 
     if _wants_htmx(request):
         hearth.refresh_from_db()
-        resp = render(request, "floor/_drawer.html", _drawer_context(hearth))
+        resp = render(
+            request, "floor/_drawer.html", _drawer_context(hearth, request.user)
+        )
+        resp["HX-Trigger"] = "floor-refresh"
+        return resp
+    return redirect(f"/?hearth={pk}")
+
+
+@login_required
+@require_POST
+def place_seal(request, pk):
+    hearth = get_object_or_404(FireHearth, pk=pk)
+    form = MaintenanceSealForm(request.POST, hearth=hearth)
+    if form.is_valid():
+        try:
+            place_maintenance_seal(
+                hearth=hearth,
+                placed_by=request.user,
+                started_at=form.cleaned_data["startedAt"],
+                planned_release_date=form.cleaned_data["plannedReleaseDate"],
+                fault_summary=form.cleaned_data["faultSummary"],
+            )
+            messages.success(request, f"灶牌 {hearth.tag} 已挂检修封条")
+        except ValidationError as exc:
+            messages.error(request, exc.messages[0])
+    else:
+        for errs in form.errors.values():
+            for e in errs:
+                messages.error(request, e)
+            break
+
+    if _wants_htmx(request):
+        hearth.refresh_from_db()
+        resp = render(
+            request, "floor/_drawer.html", _drawer_context(hearth, request.user)
+        )
+        resp["HX-Trigger"] = "floor-refresh"
+        return resp
+    return redirect(f"/?hearth={pk}")
+
+
+@login_required
+@require_POST
+def release_seal(request, pk):
+    hearth = get_object_or_404(FireHearth, pk=pk)
+    if not request.user.is_staff:
+        messages.error(request, "仅主管可解除检修封条。")
+    else:
+        try:
+            release_maintenance_seal(hearth=hearth)
+            messages.success(request, f"灶牌 {hearth.tag} 检修封条已解除")
+        except ValidationError as exc:
+            messages.error(request, exc.messages[0])
+
+    if _wants_htmx(request):
+        hearth.refresh_from_db()
+        resp = render(
+            request, "floor/_drawer.html", _drawer_context(hearth, request.user)
+        )
         resp["HX-Trigger"] = "floor-refresh"
         return resp
     return redirect(f"/?hearth={pk}")
