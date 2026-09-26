@@ -8,17 +8,20 @@
     <div class="lane-label">过道 {{ lane }}</div>
     <div class="tile-row">
       {% for h in tiles %}
-      {% with open=h.open_runs_cache.0 %}
+      {% with open=h.open_runs_cache.0 sealed=h.active_seals_cache.0 %}
       <button type="button"
-              class="hearth-tile phase-{{ h.phase }}"
+              class="hearth-tile phase-{{ h.phase }}{% if sealed %} sealed{% endif %}"
               hx-get="{% url 'hearth_drawer' h.pk %}"
               hx-target="#hearth-drawer"
               hx-swap="innerHTML"
               onclick="document.getElementById('hearth-drawer').classList.add('open')">
         <span class="tile-tag">{{ h.tag }}</span>
-        <span class="tile-phase">{{ h.get_phase_display }}</span>
+        <span class="tile-phase">{{ h.get_phase_display }}{% if sealed %} · <b class="tile-seal">在修</b>{% endif %}</span>
         <span class="tile-grade">{{ h.resinGrade }}</span>
-        {% if open %}
+        {% if sealed %}
+        <span class="tile-temp mono tile-seal-note">封条至 {{ sealed.plannedReleaseDate|date:"m-d" }}</span>
+        <span class="tile-lot">{{ sealed.faultSummary }}</span>
+        {% elif open %}
         <span class="tile-temp mono">目标 {{ open.targetSoftPointC }}℃</span>
         <span class="tile-lot">{{ open.resinLot.lotCode }}</span>
         {% else %}

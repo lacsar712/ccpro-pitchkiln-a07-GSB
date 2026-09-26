@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}检修封条{% endblock %}
+{% block content %}
+<section class="board-head">
+  <div>
+    <h1>检修封条</h1>
+    <p class="board-sub">未解除期间该灶一切写操作（开灶 / 改相位 / 登记探针 / 收灶）均被拦截</p>
+  </div>
+  <a class="back-link" href="{% url 'home' %}">← 回值守看板</a>
+</section>
+
+<section class="drawer-block seal-list">
+  <h3>未解除 · 在修</h3>
+  <ul class="seal-feed">
+    {% for s in active_seals %}
+    <li class="seal-card active">
+      <div class="seal-head">
+        <span class="lot-code">{{ s.hearth.tag }}</span>
+        <span class="badge badge-sealed">在修</span>
+      </div>
+      <p class="lot-place">{{ s.faultSummary }}</p>
+      <div class="lot-meta">
+        <span>挂条人 {{ s.sealedBy.username }}</span>
+        <span class="mono">{{ s.startedAt|date:"Y-m-d H:i" }} 起</span>
+        <span class="mono">计划解除 {{ s.plannedReleaseDate|date:"Y-m-d" }}</span>
+      </div>
+      <div class="seal-actions">
+        <a class="back-link" href="/?hearth={{ s.hearth.pk }}">开抽屉</a>
+        {% if user.is_staff %}
+        <form method="post" action="{% url 'release_seal' s.hearth.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'seal_list' %}">
+          <button type="submit" class="btn-ghost">解除（写入实解时刻）</button>
+        </form>
+        {% endif %}
+      </div>
+    </li>
+    {% empty %}
+    <li class="seal-empty">当前没有在修灶台</li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="drawer-block seal-list">
+  <h3>已解除 · 历史</h3>
+  <ul class="seal-feed">
+    {% for s in released_seals %}
+    <li class="seal-card">
+      <div class="seal-head">
+        <span class="lot-code">{{ s.hearth.tag }}</span>
+        <span class="badge">已解除</span>
+      </div>
+      <p class="lot-place">{{ s.faultSummary }}</p>
+      <div class="lot-meta">
+        <span>挂条人 {{ s.sealedBy.username }}</span>
+        <span class="mono">{{ s.startedAt|date:"Y-m-d H:i" }} 起</span>
+        <span class="mono">实解 {{ s.releasedAt|date:"Y-m-d H:i" }}</span>
+      </div>
+    </li>
+    {% empty %}
+    <li class="seal-empty">尚无历史封条</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

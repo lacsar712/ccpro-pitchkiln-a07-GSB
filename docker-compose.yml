@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: pitchkiln
       POSTGRES_PASSWORD: pitchkiln
     ports:
-      - "6240:5432"
+      - "6250:5432"
     volumes:
       - pitchkiln_pg:/var/lib/postgresql/data
     healthcheck:
@@ -19,7 +19,7 @@ services:
   web:
     build: .
     ports:
-      - "4840:4710"
+      - "4850:4710"
     environment:
       DJANGO_DEBUG: "0"
       DJANGO_ALLOWED_HOSTS: "*"
@@ -28,7 +28,7 @@ services:
       POSTGRES_DB: pitchkiln
       POSTGRES_USER: pitchkiln
       POSTGRES_PASSWORD: pitchkiln
-      CSRF_TRUSTED_ORIGINS: "http://localhost:4840,http://127.0.0.1:4840"
+      CSRF_TRUSTED_ORIGINS: "http://localhost:4850,http://127.0.0.1:4850"
       USE_GUNICORN: "1"
     depends_on:
       db:

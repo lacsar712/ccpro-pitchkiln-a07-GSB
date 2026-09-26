@@ -54,12 +54,21 @@ python manage.py runserver 0.0.0.0:4710
 2. **FireHearth（灶台）**：`lane`、`tag`（唯一）、`resinGrade`、相位 `cold|charging|ramping|holding|drawing`
 3. **CookRun（熬制值守）**：归属灶台与来脂批、`openedAt`、`closedAt`（可空）、`targetSoftPointC`
 4. **SoftPointProbe（软化点探针）**：归属值守、`sampledAt`、`softPointC`、`samplerName`
+5. **MaintenanceSeal（检修封条）**：`hearth`、`startedAt`（开始时刻）、`plannedReleaseDate`（计划解除日）、`faultSummary`（故障摘要）、`sealedBy`（挂条人）、`releasedAt`（实解时刻，可空）
 
-**业务规则**：将灶台相位切到 `drawing`（出胶）时，进行中的 CookRun 必须至少有一条 SoftPointProbe 的 `softPointC ≤ 95`。逻辑在 `apps/kiln/services/floor_rules.py`，由相位切换入口调用。
+**业务规则一（出胶）**：将灶台相位切到 `drawing`（出胶）时，进行中的 CookRun 必须至少有一条 SoftPointProbe 的 `softPointC ≤ 95`。逻辑在 `apps/kiln/services/floor_rules.py`，由相位切换入口调用。
+
+**业务规则二（检修封条）**：逻辑在 `apps/kiln/services/maintenance.py`。
+
+- **挂条**：仅 `cold`（冷灶）且无未收灶值守的灶台可挂；同一灶台同时只允许一条未解除封条（数据库部分唯一约束兜底）。界面按钮会藏，但后端 `hang_seal` 仍强制校验——非冷灶或有进行中值守时 POST 直接失败。
+- **拦截范围**：封条未解除期间，该灶的**开灶、改相位、登记探针、收灶**等一切写操作全部被拦截；抽屉只显示中文「在修」说明与封条详情，不再渲染任何写表单；看板瓦片标「在修」。
+- **解除**：仅主管（`is_staff`）可解除，解除时写入 `releasedAt`（实解时刻），不可改写。
+- **共用判定**：写操作拦截、抽屉「在修」展示、解除按钮判定全部共用 `active_seal_for(hearth)` 同一查询。
 
 ## 界面
 
-- 首页：**灶台值守看板** — 左侧班次条 + 按过道排布的灶台瓦片；点瓦片打开右侧抽屉（值守、探针时间线、改相位 / 登记探针 / 开灶）
+- 首页：**灶台值守看板** — 左侧班次条 + 按过道排布的灶台瓦片（在修灶带「在修」标与斜纹）；点瓦片打开右侧抽屉（值守、探针时间线、改相位 / 登记探针 / 开灶；冷灶可挂检修封条，在修灶显示封条详情与主管解除按钮）
+- 班次条「修」：**检修封条总览** — 未解除（在修）与已解除历史两列，主管可在此解除
 - 次页：**来脂批** — 卡片时间线，非宽表 CRUD
 
 ## 种子数据
@@ -68,7 +77,7 @@ python manage.py runserver 0.0.0.0:4710
 python manage.py seed_data
 ```
 
-幂等：已有灶台则只保证账号存在。样例地名仅用「松脂坳 / 桐油坑」系。
+幂等：已有灶台则只保证账号存在。样例地名仅用「松脂坳 / 桐油坑」系。种子含一台冷灶（`坑火-东三`）挂未解除的检修封条，用于演示「在修」拦截。
 
 ## 目录结构
 

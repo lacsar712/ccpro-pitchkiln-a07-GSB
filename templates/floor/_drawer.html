@@ -5,9 +5,34 @@
       <h2>{{ hearth.tag }}</h2>
     </div>
     <span class="badge phase-{{ hearth.phase }}">{{ hearth.get_phase_display }}</span>
+    {% if active_seal %}<span class="badge badge-sealed">在修</span>{% endif %}
   </header>
 
   <p class="drawer-meta">品级标签 · {{ hearth.resinGrade }}</p>
+
+  {% if active_seal %}
+  <section class="drawer-block seal-banner">
+    <h3>检修封条 · 在修</h3>
+    <p class="seal-note">该灶检修封条未解除，开灶、改相位、登记探针、收灶等一切写操作均被拦截。</p>
+    <dl class="kv">
+      <dt>故障摘要</dt><dd>{{ active_seal.faultSummary }}</dd>
+      <dt>挂条人</dt><dd>{{ active_seal.sealedBy.username }}</dd>
+      <dt>开始时刻</dt><dd class="mono">{{ active_seal.startedAt|date:"Y-m-d H:i" }}</dd>
+      <dt>计划解除日</dt><dd class="mono">{{ active_seal.plannedReleaseDate|date:"Y-m-d" }}</dd>
+    </dl>
+    {% if user.is_staff %}
+    <form method="post" action="{% url 'release_seal' hearth.pk %}"
+          hx-post="{% url 'release_seal' hearth.pk %}"
+          hx-target="#hearth-drawer"
+          hx-swap="innerHTML">
+      {% csrf_token %}
+      <button type="submit" class="btn-ember">解除封条（写入实解时刻）</button>
+    </form>
+    {% else %}
+    <p class="hint">仅主管可解除封条。</p>
+    {% endif %}
+  </section>
+  {% else %}
 
   {% if open_run %}
   <section class="drawer-block">
@@ -83,4 +108,21 @@
       <button type="submit" class="btn-ember">改相位</button>
     </form>
   </section>
+
+  {% if seal_form %}
+  <section class="drawer-block">
+    <h3>挂检修封条</h3>
+    <p class="hint">仅冷灶且无未收灶值守可挂条；挂条后该灶一切写操作被拦截，须主管解除。</p>
+    <form method="post" action="{% url 'hang_seal' hearth.pk %}"
+          class="stack-form"
+          hx-post="{% url 'hang_seal' hearth.pk %}"
+          hx-target="#hearth-drawer"
+          hx-swap="innerHTML">
+      {% csrf_token %}
+      {{ seal_form.as_p }}
+      <button type="submit" class="btn-ghost">挂检修封条</button>
+    </form>
+  </section>
+  {% endif %}
+  {% endif %}
 </div>

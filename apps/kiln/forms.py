@@ -1,7 +1,7 @@
 from django import forms
 from django.utils import timezone
 
-from .models import CookRun, FireHearth, ResinLot, SoftPointProbe
+from .models import CookRun, FireHearth, MaintenanceSeal, ResinLot, SoftPointProbe
 from .services.floor_rules import assert_can_enter_drawing
 
 
@@ -107,3 +107,31 @@ class OpenCookRunForm(forms.ModelForm):
         if self.hearth is not None and self.hearth.open_run() is not None:
             raise forms.ValidationError("该灶已有进行中的值守，请先收灶再开新灶。")
         return cleaned
+
+
+class MaintenanceSealForm(forms.ModelForm):
+    class Meta:
+        model = MaintenanceSeal
+        fields = ["startedAt", "plannedReleaseDate", "faultSummary"]
+        widgets = {
+            "startedAt": forms.DateTimeInput(
+                attrs={"class": "field", "type": "datetime-local"},
+                format="%Y-%m-%dT%H:%M",
+            ),
+            "plannedReleaseDate": forms.DateInput(
+                attrs={"class": "field", "type": "date"},
+                format="%Y-%m-%d",
+            ),
+            "faultSummary": forms.TextInput(attrs={"class": "field"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["startedAt"].input_formats = [
+            "%Y-%m-%dT%H:%M",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+        ]
+        self.fields["plannedReleaseDate"].input_formats = ["%Y-%m-%d"]
+        if not self.is_bound:
+            self.initial["startedAt"] = timezone.localtime().strftime("%Y-%m-%dT%H:%M")
